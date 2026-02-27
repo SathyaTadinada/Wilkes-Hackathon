@@ -36,6 +36,12 @@ export default function ResultsPage() {
       setLoading(true);
       setError("");
 
+      if (!normalized.ok) {
+        setError(normalized.errors.join(" "));
+        setLoading(false);
+        return;
+      }
+
       try {
         const response = await fetch("/api/rank-retrofits", {
           method: "POST",

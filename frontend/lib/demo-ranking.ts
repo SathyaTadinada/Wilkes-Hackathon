@@ -263,6 +263,13 @@ export function buildDemoRanking(
 
     const score = Math.round(clamp(rawScore, 5, 99));
 
+    const feasibilityValue: "High" | "Medium" | "Low" =
+      seed.baseFeasibility === 3
+        ? "High"
+        : seed.baseFeasibility === 2
+          ? "Medium"
+          : "Low";
+
     return {
       name: seed.name,
       score,
@@ -270,12 +277,7 @@ export function buildDemoRanking(
       annual_savings: annualSavings,
       payback_years: paybackYears,
       time_estimate: seed.timeEstimate,
-      feasibility:
-        seed.baseFeasibility === 3
-          ? "High"
-          : seed.baseFeasibility === 2
-            ? "Medium"
-            : "Low",
+      feasibility: feasibilityValue,
       reason: buildReason(seed.name, request, paybackYears),
     };
   }).sort((a, b) => b.score - a.score);
