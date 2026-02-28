@@ -1,8 +1,8 @@
 import pandas as pd
-import Models
+import Models import 
 
-def build_dataset():
-    energy_objects = []
+def build_dataset(energy_objects):
+    
     method = []
     installation_cost = []
     npv = []
