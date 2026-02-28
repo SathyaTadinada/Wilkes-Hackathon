@@ -13,9 +13,7 @@ class RetrofitOption:
     annual_savings: float
     reason: str
 
-def get_objects():
-    params = build_analysis_result()
-    normalized_payload = params['received_fields']
+def get_objects(normalized_payload):
     zipcode = normalized_payload['zip']
     costperkWh = normalized_payload['cost_per_kwh']
     kWhperyear = normalized_payload['yearly_kwh_usage']
@@ -42,25 +40,26 @@ def get_objects():
     #return [solar, wind, geo]
     return [dummy]
 
-def mock_options() -> List[RetrofitOption]:
-    energy_objects = get_objects()
+def mock_options(normalized_payload) -> List[RetrofitOption]:
+    energy_objects = get_objects(normalized_payload)
     df = []
     for energy_object in energy_objects:
         df.append(RetrofitOption(
             name=energy_object.name,
             npv=energy_object.NPV(),
-            annual_savings=energy_object.ann,
+            annual_savings=energy_object.savingsOverTime(),
             installation_cost=energy_object.installCost(),
             reason="fuckass",
             )
         )
     return df
 
-def to_ranked_json(years_in_home: float) -> List[Dict]:
+def to_ranked_json(normalized_payload) -> List[Dict]:
     """
     Returns a list of ranked options in the exact structure the frontend expects.
     """
-    options = mock_options()
+    options = mock_options(normalized_payload)
+    years_in_home = normalized_payload["years_in_home"]
     ranked = []
 
     years_captured = min(max(years_in_home, 1.0), 15.0)
