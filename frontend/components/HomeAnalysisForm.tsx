@@ -148,8 +148,7 @@ export default function HomeAnalysisForm() {
       <div>
         <h2 className="section-title">Home + Utility Inputs</h2>
         <p className="section-subtitle">
-          Choose “PDF” or “Manual” for each utility. PDFs are forwarded to the backend
-          (multipart upload).
+          Choose “PDF” or “Manual” for each utility.
         </p>
       </div>
 

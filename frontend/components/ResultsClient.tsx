@@ -59,7 +59,7 @@ export default function ResultsClient() {
         <p className="hero-subtitle">{backend?.message ?? result.message}</p>
       </div>
 
-      <section className="page-card stack">
+      {/* <section className="page-card stack">
         <h2 className="section-title">Request status</h2>
 
         <div className="summary-grid">
@@ -78,7 +78,7 @@ export default function ResultsClient() {
             <span className="summary-value">{rankedOptions.length > 0 ? "yes" : "no"}</span>
           </div>
         </div>
-      </section>
+      </section> */}
 
       {summary ? (
         <section className="page-card stack">
@@ -136,7 +136,7 @@ export default function ResultsClient() {
         </section>
       )}
 
-      {normalized ? (
+      {/* {normalized ? (
         <section className="page-card stack">
           <h2 className="section-title">Normalized payload</h2>
           <pre className="code-block">{pretty(normalized)}</pre>
@@ -146,7 +146,7 @@ export default function ResultsClient() {
       <section className="page-card stack">
         <h2 className="section-title">Raw backend response</h2>
         <pre className="code-block">{pretty(result.backend_response)}</pre>
-      </section>
+      </section> */}
     </div>
   );
 }

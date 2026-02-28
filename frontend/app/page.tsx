@@ -9,8 +9,7 @@ export default function HomePage() {
             <h1 className="hero-title">Retrofit Analyzer</h1>
             <p className="hero-subtitle">
               Enter your address and utility data (upload bills or manual values).
-              We forward the payload to a Python backend that echoes what it received
-              and returns mock “next best retrofit” recommendations.
+              We forward the payload to a Python backend that returns “next best retrofit” recommendations.
             </p>
           </div>
 

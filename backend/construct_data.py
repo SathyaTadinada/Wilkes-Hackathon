@@ -3,7 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import List, Dict
 from analysis_core import build_analysis_result
-from Models import *
+from Models import WindFast, SolarFast, GeoFast
 
 @dataclass
 class RetrofitOption:
@@ -22,23 +22,15 @@ def get_objects(normalized_payload):
     sqfeet = normalized_payload['average_sq_ft']
     years = normalized_payload['years_in_home']
 
-    inputs = [
-        zipcode,
-        costperkWh,
-        kWhperyear,
-        costperBTU,
-        BTUperyear,
-        sqfeet,
-        years,
-    ]
 
-    # solar = Solar(*inputs)
+    solar = SolarFast(zipcode, kWhperyear, costperkWh, years)
     # wind = Wind(*inputs)
     # geo = Geo(*inputs)
-    dummy = Dummy(*inputs)
+    geo = GeoFast(zipcode, kWhperyear, BTUperyear, costperkWh, costperBTU, years, sqfeet)
+    wind = WindFast(zipcode, kWhperyear, costperkWh, years)
 
     # return [solar, wind, geo]
-    return [dummy]
+    return [solar, wind, geo]
 
 def mock_options(normalized_payload) -> List[RetrofitOption]:
     energy_objects = get_objects(normalized_payload)
@@ -46,10 +38,10 @@ def mock_options(normalized_payload) -> List[RetrofitOption]:
     for energy_object in energy_objects:
         df.append(RetrofitOption(
             name=energy_object.name,
-            npv=energy_object.NPVsub(),
-            annual_savings=energy_object.savingsOverTimeSub(),
-            installation_cost=energy_object.installCostSub(),
-            reason="fuckass",
+            npv=energy_object.npv(),
+            annual_savings=energy_object.annual_savings(),
+            installation_cost=energy_object.installation_cost(),
+            reason="",
             )
         )
     return df
@@ -62,9 +54,15 @@ def to_ranked_json(normalized_payload) -> List[Dict]:
     years_in_home = normalized_payload["years_in_home"]
     ranked = []
 
-    years_captured = min(max(years_in_home, 1.0), 15.0)
+    def npv_of_annuity(payment: float, r: float, n: float) -> float:
+        # payment received end of each year
+        return payment * (1 - (1 + r) ** (-n)) / r if r > 0 else payment * n
+
+    years_captured = max(years_in_home, 1.0)
+    discount_rate = 0.05  # example
 
     for opt in options:
+        value_during_stay = npv_of_annuity(opt.annual_savings, discount_rate, years_captured) - opt.installation_cost
         payback = (opt.installation_cost / opt.annual_savings) if opt.annual_savings > 0 else 999.0
         value_during_stay = opt.annual_savings * years_captured - opt.installation_cost
 
@@ -93,6 +91,7 @@ def to_ranked_json(normalized_payload) -> List[Dict]:
 
     ranked.sort(key=lambda x: x["score"], reverse=True)
     return ranked
+
 # import pandas as pd
 
 # def build_dataset(energy_objects):

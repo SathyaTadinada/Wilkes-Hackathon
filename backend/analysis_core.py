@@ -41,7 +41,7 @@ def build_analysis_result(
 
     return {
         "ok": True,
-        "message": "Backend received inputs, parsed utility values, and returned mock ranked retrofit options.",
+        "message": "",
         "received_fields": {
             "address": address,
             "city": city,

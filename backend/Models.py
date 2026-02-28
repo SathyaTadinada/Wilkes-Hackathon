@@ -1,24 +1,47 @@
-# -*- coding: utf-8 -*-
-"""
-Created on Fri Feb 27 15:35:54 2026
-
-@author: rohdo
-"""
-
 import pandas as pd
 import numpy as np
 import scipy as sp
-import os
-import requests
 
-weather_df = pd.read_csv("4244977.csv") # https://www.climate.gov/maps-data/dataset/past-weather-zip-code-data-table
-zip2station_df = pd.read_csv("zipcodes.csv")
+def climate_from_zip(zipcode: int):
+    first = int(str(zipcode)[0])
 
-class Model:
-    """"""
-    
+    if first <= 2:
+        return "northeast"
+    elif first <= 5:
+        return "central"
+    elif first <= 8:
+        return "mountain"
+    else:
+        return "west"
+
+SOLAR_CF = {
+    "northeast": 0.16,
+    "central": 0.19,
+    "mountain": 0.22,
+    "west": 0.21,
+}
+
+WIND_CF = {
+    "northeast": 0.18,
+    "central": 0.25,
+    "mountain": 0.30,
+    "west": 0.24,
+}
+
+GEO_SAVINGS_FACTOR = {
+    "northeast": 0.55,   # cold, big heating savings
+    "central": 0.45,
+    "mountain": 0.50,
+    "west": 0.35,        # mild climates = smaller savings
+}
+
+def fast_npv(capex, annual_cash, years, r=0.05):
+    pv_factor = (1 - (1 + r) ** -years) / r
+    return -capex + annual_cash * pv_factor
+
+class Dummy():
+    """Solar energy solutions"""
     def __init__(self, zipcode: int, costperkWh: float, kWhperyear: float, costperBTU: float, BTUperyear: float, sqfeet: int, years: int):
-        """"""
         self.zipcode = zipcode
         self.costperkWh = costperkWh
         self.kWhperyear = kWhperyear
@@ -26,78 +49,6 @@ class Model:
         self.BTUperyear = BTUperyear
         self.sqfeet = sqfeet
         self.years = years
-        self.percentReplacements = np.array([0.01, 0.1, 0.3, 1])
-        self.station = self.getStation()
-        self.totalAverageWeatherData = weather_df.drop(columns = ["STATION", "NAME"]).mean()
-        self.averageWeatherData = self.getAverageWeatherData()
-        
-        
-    def getStation(self):
-        """"""
-        zipcodes = np.array(zip2station_df["Zip Code"])
-        stations = np.array(zip2station_df["Station ID"])
-        
-        s = stations[zipcodes == self.zipcode]
-        
-        if len(s) < 1:
-            return None
-        else:
-            return s[0]
-        
-    def getAverageWeatherData(self):
-        """"""
-        if self.station is None:
-            return self.totalAverageWeatherData
-        else:
-            return weather_df.loc[weather_df["STATION"] == self.station].drop(columns = ["STATION", "NAME"]).mean()
-        
-    def getWeatherData(self, dataStr):
-        """"""
-        data = self.averageWeatherData[dataStr]
-        
-        if np.isnan(data):
-            return self.totalAverageWeatherData[dataStr]
-        else:
-            return data
-        
-    def savings(self, Pa, electricity = True):
-        """"""
-        if electricity:
-            return Pa * 8760 * self.costperkWh # 8760 hours in a year
-        else:
-            return Pa * self.costperBTU
-    
-    def installCost(self, Pi, k_capex):
-        """"""
-        return k_capex * Pi
-    
-    def OMcost(self, Pi, k_OM):
-        """"""
-        return k_OM * Pi
-    
-    def NPV(self, Pa, Pi, k_capex, k_OM, r = 0.024, electricity = True):
-        """"""
-        capex = self.installCost(Pi, k_capex)
-        
-        sav = self.savings(Pa, electricity = electricity)
-            
-        OM = self.OMcost(Pi, k_OM) # operating and management costs
-        
-        return -capex + sum((sav - OM)/(1 + r)**t for t in range(0, self.years))
-    
-    def savingsOverTime(self, Pa, Pi, k_OM, electricity = True):
-        """"""
-        sav = self.savings(Pa, electricity = electricity)
-        OM = self.OMcost(Pi, k_OM) # operating and management costs
-        
-        return sum(sav - OM for t in range(0, self.years))
-    
-class Dummy(Model):
-    """Solar energy solutions"""
-    
-    def __init__(self, zipcode: int, costperkWh: float, kWhperyear: float, costperBTU: float, BTUperyear: float, sqfeet: int, years: int):
-        """"""
-        super().__init__(zipcode, costperkWh, kWhperyear, costperBTU, BTUperyear, sqfeet, years)
         self.name = "Dummy"
         
     def installCostSub(self):
@@ -109,178 +60,147 @@ class Dummy(Model):
     def savingsOverTimeSub(self):
         return 1.0
 
-class Solar:
+class SolarFast:
 
-    def __init__(self, zipcode, costperkWh, kWhperyear,
-                 costperBTU, BTUperyear, sqfeet, years):
-
+    def __init__(
+        self,
+        zipcode: int,
+        annual_kwh: float,
+        electricity_rate: float,
+        years: int,
+    ):
+        self.name = "Solar"
         self.zipcode = zipcode
-        self.cost_per_kwh = costperkWh
-        self.usage = kWhperyear
-        self.years = int(years)
+        self.annual_kwh = annual_kwh
+        self.rate = electricity_rate
+        self.years = years
 
-        self.discount_rate = 0.06
-        self.degradation = 0.005
-        self.capex_per_kw = 3000
+        self.region = climate_from_zip(zipcode)
+        self.cf = SOLAR_CF[self.region]
 
-        self.production_per_kw = self.get_production_per_kw()
-        self.system_size = self.usage / self.production_per_kw
-        self.install_cost = self.system_size * self.capex_per_kw
-        self.annual_production = self.production_per_kw * self.system_size
+        # assumptions
+        self.offset_fraction = 0.80      # solar typically offsets more than wind
+        self.capex_per_kw = 3000         # $/kW installed
+        self.soft_cost = 2000            # permits, interconnection
+        self.om_per_kw = 25              # $/kW-year
+        self.federal_itc = 0.30          # 30% tax credit
 
-    def get_production_per_kw(self):
-        api_key = "UHPUjf9EDkyLxXe5LyhZHSAMuQypaOfGwOkmT3Az"
+    def system_size_kw(self):
+        target_kwh = self.annual_kwh * self.offset_fraction
+        return target_kwh / (8760 * self.cf)
 
-        url = "https://developer.nrel.gov/api/pvwatts/v8.json"
+    def annual_production(self):
+        return self.system_size_kw() * 8760 * self.cf
 
-        params = {
-            "api_key": api_key,
-            "address": self.zipcode,
-            "system_capacity": 1,  # 1 kW test system
-            "azimuth": 180,
-            "tilt": 20,
-            "array_type": 1,
-            "module_type": 1,
-            "losses": 14
-        }
-
-        r = requests.get(url, params=params)
-
-        if r.status_code != 200:
-            raise Exception("PVWatts API failed")
-
-        data = r.json()
-
-        return data["outputs"]["ac_annual"]
+    def installation_cost(self):
+        gross = self.system_size_kw() * self.capex_per_kw + self.soft_cost
+        return gross * (1 - self.federal_itc)
 
     def annual_savings(self):
-        usable_production = min(self.annual_production, self.usage)
-        return usable_production * self.cost_per_kwh
+        return self.annual_production() * self.rate
 
-    def NPV(self):
-        npv = -self.install_cost * 0.7  # 30% ITC
+    def npv(self):
+        capex = self.installation_cost()
+        annual_om = self.system_size_kw() * self.om_per_kw
+        net_cash = self.annual_savings() - annual_om
 
-        annual_savings = self.annual_savings()
+        return fast_npv(capex, net_cash, self.years)
 
-        for year in range(1, self.years + 1):
-            degraded = annual_savings * ((1 - self.degradation) ** year)
-            npv += degraded / ((1 + self.discount_rate) ** year)
+    def payback_years(self):
+        net_cash = self.annual_savings() - self.system_size_kw() * self.om_per_kw
+        if net_cash <= 0:
+            return 999
+        return self.installation_cost() / net_cash
 
-        return npv
+class WindFast:
 
-    def installCost(self):
-        return self.install_cost
+    def __init__(self, zipcode, annual_kwh, electricity_rate, years):
+        self.name = "Wind"
+        self.zipcode = zipcode
+        self.annual_kwh = annual_kwh
+        self.rate = electricity_rate
+        self.years = years
 
-    def savingsOverTime(self):
-        return self.annual_savings()
-        
-class Wind(Model):
-    """Wind energy solutions"""
-    
-    # cost vs kW curves
-    # https://solartechonline.com/blog/wind-turbine-cost-guide-2025/#:~:text=400W%20systems:%20$700%2D$850,only)%2C%20$80%2C000%2D$150%2C000%20installed
-    
-    def __init__(self, zipcode: int, costperkWh: float, kWhperyear: float, costperBTU: float, BTUperyear: float, sqfeet: int, years: int):
-        """"""
-        super().__init__(zipcode, costperkWh, kWhperyear, costperBTU, BTUperyear, sqfeet, years)
-        self.k_capex = 7850
-        self.k_OM = 46
-        self.vms = 0.447 * self.getWeatherData("AWND") # units of m/s
-        self.Pa = self.kWhperyear/8760 * self.percentReplacements
-        self.Pi = self.powerRated()
-    
-    def Area(self, P_rated):
-        """returns area in meters for a given power rating
-        https://docs.google.com/spreadsheets/d/1vxPFSOo5255XTnbqL5LU9BPplS1_HoSFddLY0MMfdlY/edit?usp=sharing"""
-        return 10.4 * P_rated**0.469
-    
-    def v_cutIn(self, P_rated):
-        """https://docs.google.com/spreadsheets/d/1D1LJACNSzSjRHw3l2GSSJ7E_lHYuaRjZIAY-oMghpIU/edit?usp=sharing"""
-        return 2.5 # m/s
-    
-    def v_rated(self, P_rated):
-        """"""
-        eta = 0.3 # efficiency
-        rho = 1.225 # kg/m^3 https://en.wikipedia.org/wiki/Density_of_air sea level which is technically wrong for Utah
-        v_r = (2 * 1000 * P_rated/(eta * rho * self.Area(P_rated)))**(1/3) - self.v_cutIn(P_rated)
-        return v_r # m/s
-    
-    def powerCurve(v, P_rated, v_cutIn, v_rated):
-        """ wind speed (v) in mph. 
-        https://energyeducation.ca/encyclopedia/Wind_power#:~:text=Wind%20speed%20largely%20determines%20the,electrical%20power%20from%20the%20generator.
-        """
-        v_cutOut = np.inf
-        
-        a = P_rated/(v_rated - v_cutIn)**3
-        
-        if v < v_cutIn:
-            return 0
-        elif v_cutIn <= v < v_rated:
-            return a * (v - v_cutIn)**3
-        elif v_rated <= v < v_cutOut:
-            return P_rated
-        else:
-            return 0
-    
-    def randomWind(self):
-        """https://en.wikipedia.org/wiki/Rayleigh_distribution"""
-        N = 10000
-        return N, sp.stats.rayleigh.rvs(scale = np.sqrt(2/np.pi) * self.vms, size = N)
-    
-    def powerRated(self):
-        """"""
-        Pls = []
-        
-        for P_actual in self.Pa:
-            N, v_rvs = self.randomWind()
-            P_r_meanls = []
-            
-            for v in v_rvs:
-                func = lambda P_rated: Wind.powerCurve(v, P_rated, self.v_cutIn(P_rated), self.v_rated(P_rated)) - P_actual
-                a = 0.001 # kW
-                b = 1000 # kW
-                
-                if np.sign(func(a)) != np.sign(func(b)):
-                    P_r = sp.optimize.brentq(func, a, b)
-                else:
-                    P_r = np.nan
-                    
-                P_r_meanls.append(P_r)
-                
-            Pls.append(np.nanmean(P_r_meanls))
-            
-        return np.array(Pls)
-    
-    def installCostSub(self):
-        """https://solartechonline.com/blog/wind-turbine-cost-guide-2025/#:~:text=400W%20systems:%20$700%2D$850,only)%2C%20$80%2C000%2D$150%2C000%20installed"""
-        return super(Wind, self).installCost(self.Pi, self.k_capex)
-    
-    def OMcostSub(self):
-        """https://www.energy.gov/sites/default/files/2022-08/distributed_wind_market_report_2022.pdf?utm_source=chatgpt.com"""
-        return super(Wind, self).OMcost(self.Pi, self.k_OM)
-    
-    def NPVsub(self):
-        """"""
-        return [super(Wind, self).NPV(self.Pa[i], self.Pi[i], self.k_capex, self.k_OM) for i in range(0, len(self.percentReplacements))]
-        
-    def savingsOverTimeSub(self):
-        return [super(Wind, self).savingsOverTime(self.Pa[i], self.Pi[i], self.k_capex, self.k_OM) for i in range(0, len(self.percentReplacements))]
-    
-class Geo(Model):
-    """Geothermal energy solutions"""
-    
-    def __init__(self, zipcode: int, costperkWh: float, kWhperyear: float, costperBTU: float, BTUperyear: float, sqfeet: int, years: int):
-        """"""
-        super().__init__(zipcode, costperkWh, kWhperyear, costperBTU, BTUperyear, sqfeet, years)
-        
-    def cost(heat_pump_capacity, year):
-        # in dollars
-        cost_per_ton = 4000 # the paper assumes this
-        return 
-        
-class DSM(Model):
-    """Demand Side Management (DSM) solutions"""
-    
-    def __init__(self, zipcode: int, costperkWh: float, kWhperyear: float, costperBTU: float, BTUperyear: float, sqfeet: int, years: int):
-        """"""
-        super().__init__(zipcode, costperkWh, kWhperyear, costperBTU, BTUperyear, sqfeet, years)
+        self.region = climate_from_zip(zipcode)
+        self.cf = WIND_CF[self.region]
+
+        self.offset_fraction = 0.5
+        self.capex_per_kw = 5000
+        self.om_per_kw = 50
+
+    def system_size_kw(self):
+        target_kwh = self.annual_kwh * self.offset_fraction
+        return target_kwh / (8760 * self.cf)
+
+    def annual_savings(self):
+        return self.annual_kwh * self.offset_fraction * self.rate
+
+    def npv(self):
+        kw = self.system_size_kw()
+        self.capex = kw * self.capex_per_kw
+        annual_om = kw * self.om_per_kw
+        net_cash = self.annual_savings() - annual_om
+
+        return fast_npv(self.capex, net_cash, self.years)
+
+    def installation_cost(self):
+        return self.capex
+
+class GeoFast:
+
+    def __init__(
+        self,
+        zipcode: int,
+        annual_kwh: float,
+        annual_btu: float,
+        electricity_rate: float,
+        gas_rate: float,
+        years: int,
+        sq_ft: float,
+    ):
+        self.name = "Geothermal"
+        self.zipcode = zipcode
+        self.annual_kwh = annual_kwh
+        self.annual_btu = annual_btu
+        self.electricity_rate = electricity_rate
+        self.gas_rate = gas_rate
+        self.years = years
+        self.sq_ft = sq_ft
+
+        self.climate = climate_from_zip(zipcode)
+        self.savings_factor = GEO_SAVINGS_FACTOR[self.climate]
+
+        # ---- Assumptions ----
+        self.cost_per_ton = 4500          # installed cost per ton
+        self.federal_itc = 0.30           # 30% geothermal ITC
+        self.annual_om = 300              # yearly maintenance estimate
+
+    def required_tonnage(self):
+        # Rule of thumb: 1 ton per 600 sq ft
+        return self.sq_ft / 600.0
+
+    def installation_cost(self):
+        gross = self.required_tonnage() * self.cost_per_ton
+        return gross * (1 - self.federal_itc)
+
+    def current_energy_cost(self):
+        electric_cost = self.annual_kwh * self.electricity_rate
+        gas_cost = self.annual_btu * self.gas_rate
+        return electric_cost + gas_cost
+
+    def annual_savings(self):
+        return self.current_energy_cost() * self.savings_factor
+
+    def annual_net_cash(self):
+        return self.annual_savings() - self.annual_om
+
+    def npv(self):
+        capex = self.installation_cost()
+        net_cash = self.annual_net_cash()
+        return fast_npv(capex, net_cash, self.years)
+
+    def payback_years(self):
+        net_cash = self.annual_net_cash()
+        if net_cash <= 0:
+            return 999.0
+        return self.installation_cost() / net_cash
