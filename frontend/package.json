@@ -1,9 +1,6 @@
 {
-  "name": "retrofit-mvp-frontend",
+  "name": "retrofit-hackathon-frontend",
   "private": true,
-  "engines": {
-    "node": ">=20.9.0"
-  },
   "scripts": {
     "dev": "next dev",
     "build": "next build",

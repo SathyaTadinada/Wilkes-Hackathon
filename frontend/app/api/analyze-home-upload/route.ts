@@ -5,11 +5,9 @@ export const runtime = "nodejs";
 
 function getString(fd: FormData, key: string): string {
   const value = fd.get(key);
-
   if (typeof value !== "string" || !value.trim()) {
     throw new Error(`Missing required field: ${key}`);
   }
-
   return value.trim();
 }
 
@@ -20,7 +18,6 @@ function getOptionalNumber(fd: FormData, key: string): number | null {
   if (typeof value !== "string" || !value.trim()) return null;
 
   const parsed = Number(value);
-
   if (!Number.isFinite(parsed) || parsed < 0) {
     throw new Error(`Invalid numeric field: ${key}`);
   }
@@ -29,8 +26,8 @@ function getOptionalNumber(fd: FormData, key: string): number | null {
 }
 
 function getRequiredPositiveNumber(fd: FormData, key: string): number {
-  const raw = getString(fd, key);
-  const parsed = Number(raw);
+  const value = getString(fd, key);
+  const parsed = Number(value);
 
   if (!Number.isFinite(parsed) || parsed <= 0) {
     throw new Error(`Invalid positive numeric field: ${key}`);
@@ -41,16 +38,13 @@ function getRequiredPositiveNumber(fd: FormData, key: string): number {
 
 function getOptionalPdf(fd: FormData, key: string): File | null {
   const value = fd.get(key);
-
   if (!(value instanceof File)) return null;
   if (value.size <= 0) return null;
-
   return value;
 }
 
 async function parseResponseBody(response: Response): Promise<unknown> {
   const text = await response.text();
-
   if (!text) return null;
 
   try {
@@ -72,20 +66,13 @@ export async function POST(request: Request) {
     const averageSqFt = getRequiredPositiveNumber(incoming, "average_sq_ft");
     const heatingFuel = getString(incoming, "heating_fuel");
     const coolingFuel = getString(incoming, "cooling_fuel");
-    const isElectricHeating =
-      getString(incoming, "is_electric_heating") === "true";
+    const isElectricHeating = getString(incoming, "is_electric_heating") === "true";
 
     const electricityPdf = getOptionalPdf(incoming, "electricity_pdf");
     const gasPdf = getOptionalPdf(incoming, "gas_pdf");
 
-    const electricRateOverride = getOptionalNumber(
-      incoming,
-      "electric_rate_override",
-    );
-    const yearlyKwhOverride = getOptionalNumber(
-      incoming,
-      "yearly_kwh_override",
-    );
+    const electricRateOverride = getOptionalNumber(incoming, "electric_rate_override");
+    const yearlyKwhOverride = getOptionalNumber(incoming, "yearly_kwh_override");
     const gasRateOverride = getOptionalNumber(incoming, "gas_rate_override");
     const yearlyBtuOverride = getOptionalNumber(incoming, "yearly_btu_override");
 
@@ -149,57 +136,40 @@ export async function POST(request: Request) {
         forward.append("gas_pdf", gasPdf, gasPdf.name);
       }
 
-      try {
-        const backendResponse = await fetch(backendUrl, {
-          method: "POST",
-          body: forward,
-          cache: "no-store",
-        });
+      const backendResponse = await fetch(backendUrl, {
+        method: "POST",
+        body: forward,
+        cache: "no-store",
+      });
 
-        const backendBody = await parseResponseBody(backendResponse);
+      const backendBody = await parseResponseBody(backendResponse);
 
-        const response: UploadApiResponse = {
-          ok: backendResponse.ok,
-          source: "backend",
-          submitted_fields: submittedFields,
-          backend_response: backendBody,
-          message: backendResponse.ok
-            ? "Files and fields were forwarded to the backend."
-            : "Backend was reached, but it returned a non-OK response.",
-        };
+      const payload: UploadApiResponse = {
+        ok: backendResponse.ok,
+        source: "backend",
+        submitted_fields: submittedFields,
+        backend_response: backendBody,
+        message: backendResponse.ok
+          ? "Files and fields were forwarded to the backend."
+          : "Backend was reached, but it returned a non-OK response.",
+      };
 
-        return NextResponse.json(response, {
-          status: backendResponse.ok ? 200 : 502,
-        });
-      } catch {
-        const response: UploadApiResponse = {
-          ok: true,
-          source: "mock",
-          submitted_fields: submittedFields,
-          backend_response: {
-            note: "Backend forwarding failed, so the frontend returned a local fallback response.",
-          },
-          message:
-            "Backend request failed. Returning a local mock response instead.",
-        };
-
-        return NextResponse.json(response);
-      }
+      return NextResponse.json(payload, {
+        status: backendResponse.ok ? 200 : 502,
+      });
     }
 
-    const response: UploadApiResponse = {
+    const payload: UploadApiResponse = {
       ok: true,
       source: "mock",
       submitted_fields: submittedFields,
       backend_response: {
-        received: true,
-        note: "No BACKEND_ANALYSIS_URL is configured yet.",
+        note: "No backend configured. Frontend upload path is working.",
       },
-      message:
-        "No backend is configured, so the frontend returned a local mock response.",
+      message: "No backend is configured, so this is a local mock response.",
     };
 
-    return NextResponse.json(response);
+    return NextResponse.json(payload);
   } catch (error) {
     return NextResponse.json(
       {
