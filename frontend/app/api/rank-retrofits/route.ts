@@ -89,9 +89,28 @@ export async function POST(request: Request) {
     const gasRateOverride = getOptionalNumber(incoming, "gas_rate_override");
     const yearlyBtuOverride = getOptionalNumber(incoming, "yearly_btu_override");
 
-    if (!electricityPdf && !gasPdf) {
+    const hasElectricOverrides =
+      electricRateOverride !== null && yearlyKwhOverride !== null;
+
+    const hasGasOverrides =
+      gasRateOverride !== null && yearlyBtuOverride !== null;
+
+    if (!electricityPdf && !hasElectricOverrides) {
       return NextResponse.json(
-        { error: "At least one PDF file must be uploaded." },
+        {
+          error:
+            "Electricity data is incomplete. Upload an electricity PDF or provide both electric override fields.",
+        },
+        { status: 400 },
+      );
+    }
+
+    if (!gasPdf && !hasGasOverrides) {
+      return NextResponse.json(
+        {
+          error:
+            "Gas data is incomplete. Upload a gas PDF or provide both gas override fields.",
+        },
         { status: 400 },
       );
     }

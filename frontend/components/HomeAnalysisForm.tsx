@@ -57,16 +57,41 @@ export default function HomeAnalysisForm() {
     if (value.trim()) fd.append(key, value.trim());
   }
 
+  function hasElectricOverrides(): boolean {
+    return (
+      form.electricRateOverride.trim().length > 0 &&
+      form.electricUsageOverride.trim().length > 0
+    );
+  }
+
+  function hasGasOverrides(): boolean {
+    return (
+      form.gasRateOverride.trim().length > 0 &&
+      form.gasUsageOverride.trim().length > 0
+    );
+  }
+
   async function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
 
     try {
       const parsedAddress = parseFullAddress(form.fullAddress);
       const yearsInHome = parsePositive(form.yearsInHome, "Years in home");
-      const approxSqft = parsePositive(form.approxSqft, "Approximate square footage");
+      const approxSqft = parsePositive(
+        form.approxSqft,
+        "Approximate square footage",
+      );
 
-      if (!electricityPdf && !gasPdf) {
-        throw new Error("Upload at least one PDF bill (electricity or gas).");
+      if (!electricityPdf && !hasElectricOverrides()) {
+        throw new Error(
+          "For electricity, upload a PDF or fill in both electric override fields.",
+        );
+      }
+
+      if (!gasPdf && !hasGasOverrides()) {
+        throw new Error(
+          "For gas, upload a PDF or fill in both gas override fields.",
+        );
       }
 
       const multipart = new FormData();
@@ -84,13 +109,25 @@ export default function HomeAnalysisForm() {
       multipart.append("heating_fuel", form.heatingFuel);
       multipart.append("cooling_fuel", form.coolingFuel);
 
-      appendIfPresent(multipart, "electric_rate_override", form.electricRateOverride);
-      appendIfPresent(multipart, "yearly_kwh_override", form.electricUsageOverride);
+      appendIfPresent(
+        multipart,
+        "electric_rate_override",
+        form.electricRateOverride,
+      );
+      appendIfPresent(
+        multipart,
+        "yearly_kwh_override",
+        form.electricUsageOverride,
+      );
       appendIfPresent(multipart, "gas_rate_override", form.gasRateOverride);
       appendIfPresent(multipart, "yearly_btu_override", form.gasUsageOverride);
 
       if (electricityPdf) {
-        multipart.append("electricity_pdf", electricityPdf, electricityPdf.name);
+        multipart.append(
+          "electricity_pdf",
+          electricityPdf,
+          electricityPdf.name,
+        );
       }
 
       if (gasPdf) {
@@ -130,8 +167,8 @@ export default function HomeAnalysisForm() {
       <div>
         <h2 className="section-title">Upload utility bills</h2>
         <p className="section-subtitle">
-          The PDFs are sent to the backend for parsing. Manual overrides are optional
-          and can be used if PDF extraction fails.
+          The PDFs are sent to the backend for parsing. Manual overrides are
+          optional and can be used if PDF extraction fails.
         </p>
       </div>
 
@@ -153,7 +190,9 @@ export default function HomeAnalysisForm() {
             </span>
             {addressPreview ? (
               <>
-                <span className="badge">Short: {addressPreview.shortAddress}</span>
+                <span className="badge">
+                  Short: {addressPreview.shortAddress}
+                </span>
                 <span className="badge">City: {addressPreview.city}</span>
                 <span className="badge">State: {addressPreview.state}</span>
                 <span className="badge">ZIP: {addressPreview.zip}</span>
@@ -245,9 +284,14 @@ export default function HomeAnalysisForm() {
             type="number"
             min="0"
             step="0.000001"
+            required={!electricityPdf}
             value={form.electricRateOverride}
-            onChange={(event) => update("electricRateOverride", event.target.value)}
-            placeholder="Optional"
+            onChange={(event) =>
+              update("electricRateOverride", event.target.value)
+            }
+            placeholder={
+              electricityPdf ? "Optional" : "Required if no electricity PDF"
+            }
           />
         </label>
 
@@ -259,8 +303,24 @@ export default function HomeAnalysisForm() {
             min="0"
             step="0.01"
             value={form.electricUsageOverride}
-            onChange={(event) => update("electricUsageOverride", event.target.value)}
+            onChange={(event) =>
+              update("electricUsageOverride", event.target.value)
+            }
             placeholder="Optional"
+          />
+          <input
+            className="input"
+            type="number"
+            min="0"
+            step="0.01"
+            required={!electricityPdf}
+            value={form.electricUsageOverride}
+            onChange={(event) =>
+              update("electricUsageOverride", event.target.value)
+            }
+            placeholder={
+              electricityPdf ? "Optional" : "Required if no electricity PDF"
+            }
           />
         </label>
 
@@ -271,9 +331,10 @@ export default function HomeAnalysisForm() {
             type="number"
             min="0"
             step="0.0000000001"
+            required={!gasPdf}
             value={form.gasRateOverride}
             onChange={(event) => update("gasRateOverride", event.target.value)}
-            placeholder="Optional"
+            placeholder={gasPdf ? "Optional" : "Required if no gas PDF"}
           />
         </label>
 
@@ -284,9 +345,10 @@ export default function HomeAnalysisForm() {
             type="number"
             min="0"
             step="0.01"
+            required={!gasPdf}
             value={form.gasUsageOverride}
             onChange={(event) => update("gasUsageOverride", event.target.value)}
-            placeholder="Optional"
+            placeholder={gasPdf ? "Optional" : "Required if no gas PDF"}
           />
         </label>
       </div>
