@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from typing import List, Dict
+from analysis_core import build_analysis_result
+from Models import *
 
 @dataclass
 class RetrofitOption:
@@ -11,30 +13,48 @@ class RetrofitOption:
     annual_savings: float
     reason: str
 
-def mock_options() -> List[RetrofitOption]:
-    return [
-        RetrofitOption(
-            name="Air sealing + attic insulation",
-            npv=2400,
-            installation_cost=1800,
-            annual_savings=420,
-            reason="Envelope improvements reduce heating/cooling demand and are usually the best first step.",
-        ),
-        RetrofitOption(
-            name="Smart thermostat",
-            npv=650,
-            installation_cost=250,
-            annual_savings=90,
-            reason="Low cost, quick install; savings depend on occupant behavior and schedules.",
-        ),
-        RetrofitOption(
-            name="Heat pump water heater",
-            npv=600,
-            installation_cost=2400,
-            annual_savings=300,
-            reason="High savings if replacing electric resistance water heating; moderate payback otherwise.",
-        ),
+def get_objects():
+    params = build_analysis_result
+    normalized_payload = params['received_fields']
+    zipcode = normalized_payload['zip']
+    costperkWh = normalized_payload['cost_per_kwh']
+    kWhperyear = normalized_payload['yearly_kwh_usage']
+    costperBTU = normalized_payload['cost_per_btu']
+    BTUperyear = normalized_payload['yearly_btu_usage']
+    sqfeet = normalized_payload['average_sq_ft']
+    years = normalized_payload['years_in_home']
+
+    inputs = [
+        zipcode,
+        costperkWh,
+        kWhperyear,
+        costperBTU,
+        BTUperyear,
+        sqfeet,
+        years,
     ]
+
+    solar = Solar(*inputs)
+    wind = Wind(*inputs)
+    geo = Geo(*inputs)
+    dummy = Dummy(*inputs)
+
+    #return [solar, wind, geo]
+    return [dummy]
+
+def mock_options() -> List[RetrofitOption]:
+    energy_objects = get_objects()
+    df = []
+    for energy_object in energy_objects:
+        df.append(RetrofitOption(
+            name=energy_object.name,
+            npv=energy_object.NPV(),
+            annual_savings=energy_object.ann,
+            installation_cost=energy_object.installCost(),
+            reason="fuckass",
+            )
+        )
+    return df
 
 def to_ranked_json(years_in_home: float) -> List[Dict]:
     """
