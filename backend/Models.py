@@ -101,7 +101,7 @@ class Dummy(Model):
     def installCost(self):
         return 12.0
 
-    def NPV_wind(self):
+    def NPV(self):
         return 30.0
         
     def savingsOverTime(self):
