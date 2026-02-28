@@ -14,7 +14,7 @@ class RetrofitOption:
     reason: str
 
 def get_objects():
-    params = build_analysis_result
+    params = build_analysis_result()
     normalized_payload = params['received_fields']
     zipcode = normalized_payload['zip']
     costperkWh = normalized_payload['cost_per_kwh']
