@@ -3,7 +3,8 @@ from __future__ import annotations
 import io
 import os
 import re
-from typing import Any, Optional
+import logging
+from typing import Any, Optional, Callable
 
 from fastapi import FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
@@ -11,19 +12,19 @@ from pypdf import PdfReader
 import uvicorn
 
 from construct_data import to_ranked_json
+from analysis_core import build_analysis_result, build_processing_summary
 
-from analysis_core import build_analysis_result
-
-import logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("retrofit")
 
-app = FastAPI(title="Retrofit Backend", version="0.2.0")
+app = FastAPI(title="Retrofit Backend", version="0.3.0")
+
 
 def parse_cors_origins() -> list[str]:
     raw = os.getenv("CORS_ORIGINS", "")
     origins = [o.strip() for o in raw.split(",") if o.strip()]
-    return origins if origins else ["http://localhost:3000", "http://127.0.0.1:3000"]
+    return origins or ["http://localhost:3000", "http://127.0.0.1:3000"]
+
 
 app.add_middleware(
     CORSMiddleware,
@@ -35,77 +36,91 @@ app.add_middleware(
 
 ANNUAL_RE = re.compile(r"annual|annually|yearly|per year|12 months", re.IGNORECASE)
 
+
+def round_to(value: float, decimals: int) -> float:
+    factor = 10**decimals
+    return round(value * factor) / factor
+
+
 def to_float(token: str) -> float:
     return float(token.replace(",", "").strip())
 
-def round_to(value: float, decimals: int) -> float:
-    factor = 10 ** decimals
-    return round(value * factor) / factor
 
 def context_looks_annual(context: str) -> bool:
     return bool(ANNUAL_RE.search(context))
 
-def collect_unit_candidates(text: str, pattern: re.Pattern[str], multiplier: float) -> list[dict[str, Any]]:
+
+async def extract_pdf_text(upload: UploadFile) -> str:
+    file_bytes = await upload.read()
+    await upload.close()
+
+    if not file_bytes:
+        raise HTTPException(status_code=400, detail=f"PDF '{upload.filename}' was empty.")
+
+    try:
+        reader = PdfReader(io.BytesIO(file_bytes))
+        text = "\n".join((page.extract_text() or "") for page in reader.pages).strip()
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail=f"Could not read PDF '{upload.filename}': {exc}") from exc
+
+    if not text:
+        raise HTTPException(status_code=400, detail=f"PDF '{upload.filename}' had no extractable text.")
+    return text
+
+
+def choose_yearly_usage(text: str, pattern: re.Pattern[str], multiplier: float, label: str) -> tuple[float, bool]:
+    """
+    Finds usage candidates and returns (yearly_value, was_annual).
+    If not annual-looking, assumes monthly and multiplies by 12.
+    """
     candidates: list[dict[str, Any]] = []
+
     for match in pattern.finditer(text):
         raw = match.group(1)
         value = to_float(raw) * multiplier
+
         start = max(0, match.start() - 28)
         end = min(len(text), match.end() + 28)
         context = text[start:end]
-        candidates.append({"value": value, "is_annual": context_looks_annual(context), "context": context})
-    return candidates
 
-def choose_usage_value(candidates: list[dict[str, Any]], label: str) -> tuple[float, bool]:
+        candidates.append(
+            {"value": value, "is_annual": context_looks_annual(context)}
+        )
+
     if not candidates:
         raise ValueError(f"Could not find {label} usage in the PDF text.")
-    annual_candidate = next((c for c in candidates if c["is_annual"]), None)
-    chosen = annual_candidate if annual_candidate is not None else max(candidates, key=lambda c: c["value"])
+
+    annual = next((c for c in candidates if c["is_annual"]), None)
+    chosen = annual if annual is not None else max(candidates, key=lambda c: c["value"])
+
     yearly = chosen["value"] if chosen["is_annual"] else chosen["value"] * 12
     return yearly, bool(chosen["is_annual"])
 
-async def extract_pdf_text(upload: UploadFile | None) -> str | None:
-    if upload is None:
-        return None
-    file_bytes = await upload.read()
-    await upload.close()
-    if not file_bytes:
-        return None
-    try:
-        reader = PdfReader(io.BytesIO(file_bytes))
-        page_texts: list[str] = []
-        for page in reader.pages:
-            page_texts.append(page.extract_text() or "")
-        text = "\n".join(page_texts).strip()
-        return text or None
-    except Exception as exc:
-        raise HTTPException(status_code=400, detail=f"Could not read PDF '{upload.filename}': {exc}") from exc
 
 def parse_electricity_text(text: str) -> dict[str, Any]:
     normalized = re.sub(r"\s+", " ", text).strip()
     if not normalized:
         raise ValueError("Electricity PDF did not contain extractable text.")
 
-    cost_per_kwh: float | None = None
-
+    # Rate: prefer cents/kWh, else dollars/kWh
     cents_rate = re.search(r"(\d+(?:\.\d+)?)\s*(?:¢|cents?)\s*(?:per|/)\s*kwh", normalized, re.IGNORECASE)
+    dollar_rate = re.search(r"\$?\s*(\d+(?:\.\d+)?)\s*(?:per|/)\s*kwh", normalized, re.IGNORECASE)
+
+    cost_per_kwh: float | None = None
     if cents_rate:
         cost_per_kwh = to_float(cents_rate.group(1)) / 100.0
-
-    if cost_per_kwh is None:
-        dollar_rate = re.search(r"\$?\s*(\d+(?:\.\d+)?)\s*(?:per|/)\s*kwh", normalized, re.IGNORECASE)
-        if dollar_rate:
-            cost_per_kwh = to_float(dollar_rate.group(1))
+    elif dollar_rate:
+        cost_per_kwh = to_float(dollar_rate.group(1))
 
     if cost_per_kwh is None:
         raise ValueError("Could not parse cost per kWh from electricity PDF. Use manual mode if needed.")
 
-    usage_candidates = collect_unit_candidates(
+    yearly_kwh, was_annual = choose_yearly_usage(
         normalized,
         re.compile(r"(\d[\d,]*(?:\.\d+)?)\s*kwh\b", re.IGNORECASE),
         1.0,
+        "electricity",
     )
-    yearly_kwh, was_annual = choose_usage_value(usage_candidates, "electricity")
 
     return {
         "cost_per_kwh": round_to(cost_per_kwh, 6),
@@ -113,40 +128,54 @@ def parse_electricity_text(text: str) -> dict[str, Any]:
         "notes": ["Detected annual usage." if was_annual else "Detected monthly-ish usage; multiplied by 12."],
     }
 
+
 def parse_gas_text(text: str) -> dict[str, Any]:
     normalized = re.sub(r"\s+", " ", text).strip()
     if not normalized:
         raise ValueError("Gas PDF did not contain extractable text.")
 
-    cost_per_btu: float | None = None
-
+    # Rate parsing
     direct_btu = re.search(r"\$?\s*(\d+(?:\.\d+)?)\s*(?:per|/)\s*btu", normalized, re.IGNORECASE)
+    mmbtu_rate = re.search(r"\$?\s*(\d+(?:\.\d+)?)\s*(?:per|/)\s*mmbtu", normalized, re.IGNORECASE)
+    therm_rate = re.search(r"\$?\s*(\d+(?:\.\d+)?)\s*(?:per|/)\s*therms?\b", normalized, re.IGNORECASE)
+    therm_rate_cents = re.search(r"(\d+(?:\.\d+)?)\s*(?:¢|cents?)\s*(?:per|/)\s*therms?\b", normalized, re.IGNORECASE)
+
+    cost_per_btu: float | None = None
     if direct_btu:
         cost_per_btu = to_float(direct_btu.group(1))
-
-    if cost_per_btu is None:
-        mmbtu_rate = re.search(r"\$?\s*(\d+(?:\.\d+)?)\s*(?:per|/)\s*mmbtu", normalized, re.IGNORECASE)
-        if mmbtu_rate:
-            cost_per_btu = to_float(mmbtu_rate.group(1)) / 1_000_000.0
-
-    if cost_per_btu is None:
-        therm_rate = re.search(r"\$?\s*(\d+(?:\.\d+)?)\s*(?:per|/)\s*therms?\b", normalized, re.IGNORECASE)
-        if therm_rate:
-            cost_per_btu = to_float(therm_rate.group(1)) / 100_000.0
-
-    if cost_per_btu is None:
-        therm_rate_cents = re.search(r"(\d+(?:\.\d+)?)\s*(?:¢|cents?)\s*(?:per|/)\s*therms?\b", normalized, re.IGNORECASE)
-        if therm_rate_cents:
-            cost_per_btu = (to_float(therm_rate_cents.group(1)) / 100.0) / 100_000.0
+    elif mmbtu_rate:
+        cost_per_btu = to_float(mmbtu_rate.group(1)) / 1_000_000.0
+    elif therm_rate:
+        cost_per_btu = to_float(therm_rate.group(1)) / 100_000.0
+    elif therm_rate_cents:
+        cost_per_btu = (to_float(therm_rate_cents.group(1)) / 100.0) / 100_000.0
 
     if cost_per_btu is None:
         raise ValueError("Could not parse cost per BTU from gas PDF. Use manual mode if needed.")
 
-    btu_candidates = collect_unit_candidates(normalized, re.compile(r"(\d[\d,]*(?:\.\d+)?)\s*btu\b", re.IGNORECASE), 1.0)
-    therm_candidates = collect_unit_candidates(normalized, re.compile(r"(\d[\d,]*(?:\.\d+)?)\s*therms?\b", re.IGNORECASE), 100_000.0)
-    mmbtu_candidates = collect_unit_candidates(normalized, re.compile(r"(\d[\d,]*(?:\.\d+)?)\s*mmbtu\b", re.IGNORECASE), 1_000_000.0)
+    # Usage parsing: accept BTU, therms, or MMBtu (convert to BTU)
+    btu_candidates = re.compile(r"(\d[\d,]*(?:\.\d+)?)\s*btu\b", re.IGNORECASE)
+    therm_candidates = re.compile(r"(\d[\d,]*(?:\.\d+)?)\s*therms?\b", re.IGNORECASE)
+    mmbtu_candidates = re.compile(r"(\d[\d,]*(?:\.\d+)?)\s*mmbtu\b", re.IGNORECASE)
 
-    yearly_btu, was_annual = choose_usage_value(btu_candidates + therm_candidates + mmbtu_candidates, "gas")
+    # Find yearly via "best" match among all units
+    # We’ll just run choose_yearly_usage on each and take the max yearly (simple heuristic)
+    yearly_values: list[tuple[float, bool]] = []
+
+    def try_usage(pat: re.Pattern[str], mult: float):
+        try:
+            yearly_values.append(choose_yearly_usage(normalized, pat, mult, "gas"))
+        except ValueError:
+            pass
+
+    try_usage(btu_candidates, 1.0)
+    try_usage(therm_candidates, 100_000.0)
+    try_usage(mmbtu_candidates, 1_000_000.0)
+
+    if not yearly_values:
+        raise ValueError("Could not find gas usage in BTU/therms/MMBtu in the PDF text.")
+
+    yearly_btu, was_annual = max(yearly_values, key=lambda t: t[0])
 
     return {
         "cost_per_btu": round_to(cost_per_btu, 10),
@@ -154,20 +183,51 @@ def parse_gas_text(text: str) -> dict[str, Any]:
         "notes": ["Detected annual usage." if was_annual else "Detected monthly-ish usage; multiplied by 12."],
     }
 
-def build_processing_summary(payload: dict[str, Any]) -> dict[str, Any]:
-    electric_cost = payload["cost_per_kwh"] * payload["yearly_kwh_usage"]
-    gas_cost = payload["cost_per_btu"] * payload["yearly_btu_usage"]
-    total = electric_cost + gas_cost
-    return {
-        "estimated_annual_electric_cost": round_to(electric_cost, 2),
-        "estimated_annual_gas_cost": round_to(gas_cost, 2),
-        "estimated_total_annual_energy_cost": round_to(total, 2),
-        "estimated_monthly_energy_cost": round_to(total / 12.0, 2),
-    }
+
+def parse_utility(
+    *,
+    mode: str,
+    pdf: UploadFile | None,
+    rate_override: Optional[float],
+    usage_override: Optional[float],
+    pdf_parser: Callable[[str], dict[str, Any]],
+    rate_key: str,
+    usage_key: str,
+    rate_decimals: int,
+    usage_decimals: int,
+    label: str,
+) -> tuple[dict[str, Any], Optional[str]]:
+    """
+    Returns (utility_data, pdf_text_preview_source_text_or_none)
+    utility_data contains the normalized keys needed downstream.
+    """
+    if mode == "manual":
+        if rate_override is None or usage_override is None:
+            raise HTTPException(status_code=400, detail=f"{label} mode is manual; provide both override fields.")
+        return (
+            {
+                rate_key: round_to(float(rate_override), rate_decimals),
+                usage_key: round_to(float(usage_override), usage_decimals),
+                "source": "manual",
+                "notes": [f"Used manual {label} values."],
+            },
+            None,
+        )
+
+    # mode == "pdf"
+    if pdf is None:
+        raise HTTPException(status_code=400, detail=f"{label} mode is pdf but no PDF was provided.")
+
+
+    # Extract text (raises HTTPException on failure)
+    # `extract_pdf_text` is async, so we can’t call it here; handled in route.
+    raise RuntimeError("parse_utility(pdf) should not be used directly without extracted text.")
+
 
 @app.get("/health")
 def health():
     return {"ok": True}
+
 
 @app.post("/analyze")
 async def analyze(
@@ -200,32 +260,25 @@ async def analyze(
 ) -> dict[str, Any]:
     logger.info("POST /analyze: %s, %s %s", address, city, zip)
 
+    # Basic validation
     if years_in_home <= 0:
         raise HTTPException(status_code=400, detail="years_in_home must be > 0.")
     if average_sq_ft <= 0:
         raise HTTPException(status_code=400, detail="average_sq_ft must be > 0.")
-
     if electricity_mode not in ("pdf", "manual"):
         raise HTTPException(status_code=400, detail="electricity_mode must be 'pdf' or 'manual'.")
     if gas_mode not in ("pdf", "manual"):
         raise HTTPException(status_code=400, detail="gas_mode must be 'pdf' or 'manual'.")
 
-    # Validate per-mode
-    if electricity_mode == "pdf" and electricity_pdf is None:
-        raise HTTPException(status_code=400, detail="Electricity mode is pdf but no electricity_pdf was provided.")
-    if electricity_mode == "manual" and (electric_rate_override is None or yearly_kwh_override is None):
-        raise HTTPException(status_code=400, detail="Electricity mode is manual; provide electric_rate_override and yearly_kwh_override.")
+    # Extract PDF text only if needed
+    electricity_text = await extract_pdf_text(electricity_pdf) if (electricity_mode == "pdf" and electricity_pdf) else None
+    gas_text = await extract_pdf_text(gas_pdf) if (gas_mode == "pdf" and gas_pdf) else None
 
-    if gas_mode == "pdf" and gas_pdf is None:
-        raise HTTPException(status_code=400, detail="Gas mode is pdf but no gas_pdf was provided.")
-    if gas_mode == "manual" and (gas_rate_override is None or yearly_btu_override is None):
-        raise HTTPException(status_code=400, detail="Gas mode is manual; provide gas_rate_override and yearly_btu_override.")
-
-    electricity_text = await extract_pdf_text(electricity_pdf) if electricity_pdf else None
-    gas_text = await extract_pdf_text(gas_pdf) if gas_pdf else None
-
+    # Parse utilities (single pattern for both)
     try:
         if electricity_mode == "manual":
+            if electric_rate_override is None or yearly_kwh_override is None:
+                raise HTTPException(status_code=400, detail="Electricity manual mode requires electric_rate_override + yearly_kwh_override.")
             electric_data = {
                 "cost_per_kwh": round_to(float(electric_rate_override), 6),
                 "yearly_kwh_usage": round_to(float(yearly_kwh_override), 2),
@@ -234,11 +287,13 @@ async def analyze(
             }
         else:
             if electricity_text is None:
-                raise ValueError("Electricity PDF had no extractable text.")
+                raise HTTPException(status_code=400, detail="Electricity pdf mode requires electricity_pdf with extractable text.")
             parsed = parse_electricity_text(electricity_text)
             electric_data = {**parsed, "source": "pdf"}
 
         if gas_mode == "manual":
+            if gas_rate_override is None or yearly_btu_override is None:
+                raise HTTPException(status_code=400, detail="Gas manual mode requires gas_rate_override + yearly_btu_override.")
             gas_data = {
                 "cost_per_btu": round_to(float(gas_rate_override), 10),
                 "yearly_btu_usage": round_to(float(yearly_btu_override), 2),
@@ -247,35 +302,54 @@ async def analyze(
             }
         else:
             if gas_text is None:
-                raise ValueError("Gas PDF had no extractable text.")
+                raise HTTPException(status_code=400, detail="Gas pdf mode requires gas_pdf with extractable text.")
             parsed = parse_gas_text(gas_text)
             gas_data = {**parsed, "source": "pdf"}
 
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
+    # Build payload + summary + ranked options
+    normalized_payload = {
+        "address": address,
+        "city": city,
+        "state": state,
+        "zip": zip,
+        "cost_per_kwh": electric_data["cost_per_kwh"],
+        "yearly_kwh_usage": electric_data["yearly_kwh_usage"],
+        "cost_per_btu": gas_data["cost_per_btu"],
+        "yearly_btu_usage": gas_data["yearly_btu_usage"],
+        "years_in_home": years_in_home,
+        "is_electric_heating": is_electric_heating,
+        "average_sq_ft": average_sq_ft,
+        "heating_fuel": heating_fuel,
+        "cooling_fuel": cooling_fuel,
+    }
+
+    processing_summary = build_processing_summary(normalized_payload)
     ranked_options = to_ranked_json(years_in_home)
 
-    result = build_analysis_result(
-        address=address,
-        city=city,
-        state=state,
-        zip=zip,
-        years_in_home=years_in_home,
-        average_sq_ft=average_sq_ft,
-        is_electric_heating=is_electric_heating,
-        heating_fuel=heating_fuel,
-        cooling_fuel=cooling_fuel,
-        electricity_mode=electricity_mode,
-        gas_mode=gas_mode,
-        electric_data=electric_data,
-        gas_data=gas_data,
-        electricity_text=electricity_text,
-        gas_text=gas_text,
+    # Single final response (no duplicated “received_fields” that repeats normalized_payload)
+    return build_analysis_result(
+        normalized_payload=normalized_payload,
+        processing_summary=processing_summary,
         ranked_options=ranked_options,
-        build_processing_summary_fn=build_processing_summary,
+        electricity_parse={
+            "source": electric_data["source"],
+            "notes": electric_data.get("notes", []),
+            "pdf_text_preview": electricity_text[:500] if electricity_text else None,
+        },
+        gas_parse={
+            "source": gas_data["source"],
+            "notes": gas_data.get("notes", []),
+            "pdf_text_preview": gas_text[:500] if gas_text else None,
+        },
+        modes={
+            "electricity_mode": electricity_mode,
+            "gas_mode": gas_mode,
+        },
     )
-    return result
+
 
 if __name__ == "__main__":
     uvicorn.run(
