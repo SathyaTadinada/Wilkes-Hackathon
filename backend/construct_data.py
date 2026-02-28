@@ -51,6 +51,8 @@ def mock_options(normalized_payload) -> List[RetrofitOption]:
             reason = "Small residential wind can work in high-wind areas; more site-dependent than solar."
         elif obj.name == "Geothermal":
             reason = "Major heating/cooling savings, but higher upfront and more invasive installation."
+        elif obj.name == "Internal Home Solutions":
+            reason = "Improves home comfort and efficiency with minimal disruption."
 
         annual_kwh_saved = float(obj.annual_energy_savings_kwh_eq()) if hasattr(obj, "annual_energy_savings_kwh_eq") else 0.0
 
