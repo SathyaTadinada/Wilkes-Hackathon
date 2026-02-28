@@ -87,11 +87,6 @@ class Geo(Model):
         """"""
         super().__init__(zipcode, costperkWh, kWhperyear, costperBTU, BTUperyear, sqfeet)
         
-    def cost(heat_pump_capacity, year):
-        # in dollars
-        cost_per_ton = 4000 # the paper assumes this
-        return 
-        
 class DSM(Model):
     """Demand Side Management (DSM) solutions"""
     
