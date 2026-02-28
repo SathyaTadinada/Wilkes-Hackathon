@@ -48,9 +48,9 @@ class Model:
     def averageData(self):
         """"""
         if self.station is None:
-            return weather_df.mean()
+            return weather_df.drop(columns = ["STATION", "NAME"]).mean()
         else:
-            return weather_df.loc(weather_df["STATION"] == self.station)
+            return weather_df.loc[weather_df["STATION"] == self.station].drop(columns = ["STATION", "NAME"]).mean()
         
         
 class Solar(Model):
