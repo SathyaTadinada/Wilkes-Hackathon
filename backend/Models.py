@@ -98,13 +98,13 @@ class Dummy(Model):
         super().__init__(zipcode, costperkWh, kWhperyear, costperBTU, BTUperyear, sqfeet, years)
         self.name = "Dummy"
         
-    def installCost(self):
+    def installCostSub(self):
         return 12.0
 
-    def NPV(self):
+    def NPVsub(self):
         return 30.0
         
-    def savingsOverTime(self):
+    def savingsOverTimeSub(self):
         return 1.0
 
 class Solar(Model):
@@ -163,7 +163,7 @@ class Wind(Model):
             return 0
     
     def randomWind(self):
-        """"""
+        """https://en.wikipedia.org/wiki/Rayleigh_distribution"""
         N = 10000
         return N, sp.stats.rayleigh.rvs(scale = np.sqrt(2/np.pi) * self.vms, size = N)
     
@@ -191,20 +191,20 @@ class Wind(Model):
             
         return np.array(Pls)
     
-    def installCost(self):
+    def installCostSub(self):
         """https://solartechonline.com/blog/wind-turbine-cost-guide-2025/#:~:text=400W%20systems:%20$700%2D$850,only)%2C%20$80%2C000%2D$150%2C000%20installed"""
-        return super().installCost(self.Pi, self.k_capex)
+        return super(Wind, self).installCost(self.Pi, self.k_capex)
     
-    def OMcost(self):
+    def OMcostSub(self):
         """https://www.energy.gov/sites/default/files/2022-08/distributed_wind_market_report_2022.pdf?utm_source=chatgpt.com"""
-        return super().OMcost(self.Pi, self.k_OM)
+        return super(Wind, self).OMcost(self.Pi, self.k_OM)
     
-    def NPV(self):
+    def NPVsub(self):
         """"""
-        return [super().NPV(self.Pa[i], self.Pi[i], self.k_capex, self.k_OM) for i in range(0, len(self.percentReplacements))]
+        return [super(Wind, self).NPV(self.Pa[i], self.Pi[i], self.k_capex, self.k_OM) for i in range(0, len(self.percentReplacements))]
         
-    def savingsOverTime(self):
-        return [super().savingsOverTime(self.Pa[i], self.Pi[i], self.k_capex, self.k_OM) for i in range(0, len(self.percentReplacements))]
+    def savingsOverTimeSub(self):
+        return [super(Wind, self).savingsOverTime(self.Pa[i], self.Pi[i], self.k_capex, self.k_OM) for i in range(0, len(self.percentReplacements))]
     
 class Geo(Model):
     """Geothermal energy solutions"""
