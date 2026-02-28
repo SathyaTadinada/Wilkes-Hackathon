@@ -8,6 +8,8 @@ Created on Fri Feb 27 15:35:54 2026
 import pandas as pd
 import numpy as np
 import scipy as sp
+import os
+import requests
 
 weather_df = pd.read_csv("4244977.csv") # https://www.climate.gov/maps-data/dataset/past-weather-zip-code-data-table
 zip2station_df = pd.read_csv("zipcodes.csv")
@@ -107,12 +109,70 @@ class Dummy(Model):
     def savingsOverTimeSub(self):
         return 1.0
 
-class Solar(Model):
-    """Solar energy solutions"""
-    
-    def __init__(self, zipcode: int, costperkWh: float, kWhperyear: float, costperBTU: float, BTUperyear: float, sqfeet: int, years: int):
-        """"""
-        super().__init__(zipcode, costperkWh, kWhperyear, costperBTU, BTUperyear, sqfeet, years)
+class Solar:
+
+    def __init__(self, zipcode, costperkWh, kWhperyear,
+                 costperBTU, BTUperyear, sqfeet, years):
+
+        self.zipcode = zipcode
+        self.cost_per_kwh = costperkWh
+        self.usage = kWhperyear
+        self.years = int(years)
+
+        self.discount_rate = 0.06
+        self.degradation = 0.005
+        self.capex_per_kw = 3000
+
+        self.production_per_kw = self.get_production_per_kw()
+        self.system_size = self.usage / self.production_per_kw
+        self.install_cost = self.system_size * self.capex_per_kw
+        self.annual_production = self.production_per_kw * self.system_size
+
+    def get_production_per_kw(self):
+        api_key = "UHPUjf9EDkyLxXe5LyhZHSAMuQypaOfGwOkmT3Az"
+
+        url = "https://developer.nrel.gov/api/pvwatts/v8.json"
+
+        params = {
+            "api_key": api_key,
+            "address": self.zipcode,
+            "system_capacity": 1,  # 1 kW test system
+            "azimuth": 180,
+            "tilt": 20,
+            "array_type": 1,
+            "module_type": 1,
+            "losses": 14
+        }
+
+        r = requests.get(url, params=params)
+
+        if r.status_code != 200:
+            raise Exception("PVWatts API failed")
+
+        data = r.json()
+
+        return data["outputs"]["ac_annual"]
+
+    def annual_savings(self):
+        usable_production = min(self.annual_production, self.usage)
+        return usable_production * self.cost_per_kwh
+
+    def NPV(self):
+        npv = -self.install_cost * 0.7  # 30% ITC
+
+        annual_savings = self.annual_savings()
+
+        for year in range(1, self.years + 1):
+            degraded = annual_savings * ((1 - self.degradation) ** year)
+            npv += degraded / ((1 + self.discount_rate) ** year)
+
+        return npv
+
+    def installCost(self):
+        return self.install_cost
+
+    def savingsOverTime(self):
+        return self.annual_savings()
         
 class Wind(Model):
     """Wind energy solutions"""
