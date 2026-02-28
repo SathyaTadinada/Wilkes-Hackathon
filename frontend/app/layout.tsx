@@ -2,15 +2,13 @@ import type { Metadata } from "next";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "Retrofit Hackathon Frontend",
-  description: "Frontend shell for preparing and sending retrofit analysis data.",
+  title: "Retrofit Analyzer",
+  description: "Hackathon MVP: upload bills or enter usage manually, get retrofit recommendations.",
 };
 
 export default function RootLayout({
   children,
-}: Readonly<{
-  children: React.ReactNode;
-}>) {
+}: Readonly<{ children: React.ReactNode }>) {
   return (
     <html lang="en">
       <body>{children}</body>

@@ -1,7 +1,7 @@
 import type { UploadApiResponse, UploadFormState } from "@/lib/types";
 
-const FORM_KEY = "retrofit-upload-form-v1";
-const RESULT_KEY = "retrofit-upload-result-v1";
+const FORM_KEY = "retrofit-upload-form-v2";
+const RESULT_KEY = "retrofit-upload-result-v2";
 
 export function createDefaultUploadForm(): UploadFormState {
   return {
@@ -10,6 +10,10 @@ export function createDefaultUploadForm(): UploadFormState {
     coolingFuel: "electric",
     yearsInHome: "",
     approxSqft: "",
+
+    electricityMode: "pdf",
+    gasMode: "pdf",
+
     electricRateOverride: "",
     electricUsageOverride: "",
     gasRateOverride: "",
@@ -38,39 +42,22 @@ export function loadUploadForm(): UploadFormState | null {
 
     const defaults = createDefaultUploadForm();
 
+    const safeMode = (value: unknown) => (value === "manual" ? "manual" : "pdf");
+
     return {
-      fullAddress:
-        typeof parsed.fullAddress === "string"
-          ? parsed.fullAddress
-          : defaults.fullAddress,
-      heatingFuel:
-        parsed.heatingFuel === "electric" ? "electric" : defaults.heatingFuel,
-      coolingFuel:
-        parsed.coolingFuel === "gas" ? "gas" : "electric",
-      yearsInHome:
-        typeof parsed.yearsInHome === "string"
-          ? parsed.yearsInHome
-          : defaults.yearsInHome,
-      approxSqft:
-        typeof parsed.approxSqft === "string"
-          ? parsed.approxSqft
-          : defaults.approxSqft,
-      electricRateOverride:
-        typeof parsed.electricRateOverride === "string"
-          ? parsed.electricRateOverride
-          : defaults.electricRateOverride,
-      electricUsageOverride:
-        typeof parsed.electricUsageOverride === "string"
-          ? parsed.electricUsageOverride
-          : defaults.electricUsageOverride,
-      gasRateOverride:
-        typeof parsed.gasRateOverride === "string"
-          ? parsed.gasRateOverride
-          : defaults.gasRateOverride,
-      gasUsageOverride:
-        typeof parsed.gasUsageOverride === "string"
-          ? parsed.gasUsageOverride
-          : defaults.gasUsageOverride,
+      fullAddress: typeof parsed.fullAddress === "string" ? parsed.fullAddress : defaults.fullAddress,
+      heatingFuel: parsed.heatingFuel === "electric" ? "electric" : "gas",
+      coolingFuel: parsed.coolingFuel === "gas" ? "gas" : "electric",
+      yearsInHome: typeof parsed.yearsInHome === "string" ? parsed.yearsInHome : defaults.yearsInHome,
+      approxSqft: typeof parsed.approxSqft === "string" ? parsed.approxSqft : defaults.approxSqft,
+
+      electricityMode: safeMode((parsed as any).electricityMode),
+      gasMode: safeMode((parsed as any).gasMode),
+
+      electricRateOverride: typeof parsed.electricRateOverride === "string" ? parsed.electricRateOverride : "",
+      electricUsageOverride: typeof parsed.electricUsageOverride === "string" ? parsed.electricUsageOverride : "",
+      gasRateOverride: typeof parsed.gasRateOverride === "string" ? parsed.gasRateOverride : "",
+      gasUsageOverride: typeof parsed.gasUsageOverride === "string" ? parsed.gasUsageOverride : "",
     };
   } catch {
     return null;
