@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any
+from typing import List, Dict
 
 @dataclass
 class RetrofitOption:
@@ -11,8 +11,7 @@ class RetrofitOption:
     annual_savings: float
     reason: str
 
-
-def mock_options() -> list[RetrofitOption]:
+def mock_options() -> List[RetrofitOption]:
     return [
         RetrofitOption(
             name="Air sealing + attic insulation",
@@ -37,10 +36,12 @@ def mock_options() -> list[RetrofitOption]:
         ),
     ]
 
-
-def to_ranked_json(years_in_home: float) -> list[dict[str, Any]]:
+def to_ranked_json(years_in_home: float) -> List[Dict]:
+    """
+    Returns a list of ranked options in the exact structure the frontend expects.
+    """
     options = mock_options()
-    ranked: list[dict[str, Any]] = []
+    ranked = []
 
     years_captured = min(max(years_in_home, 1.0), 15.0)
 
@@ -48,6 +49,7 @@ def to_ranked_json(years_in_home: float) -> list[dict[str, Any]]:
         payback = (opt.installation_cost / opt.annual_savings) if opt.annual_savings > 0 else 999.0
         value_during_stay = opt.annual_savings * years_captured - opt.installation_cost
 
+        # simple hackathon score
         score = int(
             max(
                 1,
@@ -72,3 +74,33 @@ def to_ranked_json(years_in_home: float) -> list[dict[str, Any]]:
 
     ranked.sort(key=lambda x: x["score"], reverse=True)
     return ranked
+# import pandas as pd
+
+# def build_dataset(energy_objects):
+#     method = []
+#     installation_cost = []
+#     npv = []
+#     for energy_object in energy_objects:
+#         method.append(energy_object.name)
+#         installation_cost.append(energy_object.installCost())
+#         npv.append(energy_object.NPV())
+
+#     df = pd.DataFrame({
+#             "Method": method,
+#             "NPV": npv,
+#             "Installation Cost": installation_cost,
+#         })
+
+#     return df
+
+# def convert_dataset():
+#     #df = build_dataset()
+#     df = pd.DataFrame({
+#         "Method": ["Solar", "Wind", "Geothermal"],
+#         "NPV": [100, 300, 200],
+#         "Installation Cost": [100, 200, 300],
+#         }
+#     )
+#     df_sorted = df.sort_values(by="NPV")
+#     df_json = df_sorted.to_json()
+#     return df_json
