@@ -90,6 +90,23 @@ class Model:
         
         return sum(sav - OM for t in range(0, self.years))
     
+class Dummy(Model):
+    """Solar energy solutions"""
+    
+    def __init__(self, zipcode: int, costperkWh: float, kWhperyear: float, costperBTU: float, BTUperyear: float, sqfeet: int, years: int):
+        """"""
+        super().__init__(zipcode, costperkWh, kWhperyear, costperBTU, BTUperyear, sqfeet, years)
+        self.name = "Dummy"
+        
+    def installCost(self):
+        return 12.0
+
+    def NPV_wind(self):
+        return 30.0
+        
+    def savingsOverTime(self):
+        return 1.0
+
 class Solar(Model):
     """Solar energy solutions"""
     
