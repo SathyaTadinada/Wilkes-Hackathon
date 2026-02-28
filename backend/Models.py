@@ -23,7 +23,7 @@ class Model:
         self.costperBTU = costperBTU
         self.BTUperyear = BTUperyear
         self.sqfeet = sqfeet
-        self.years
+        self.years = years
         self.percentReplacements = np.array([0.1, 0.3, 1])
         self.station = self.getStation()
         self.totalAverageWeatherData = weather_df.drop(columns = ["STATION", "NAME"]).mean()
@@ -53,7 +53,6 @@ class Model:
         """"""
         data = self.averageWeatherData[dataStr]
         
-        print(np.isnan(data))
         if np.isnan(data):
             return self.totalAverageWeatherData[dataStr]
         else:
@@ -62,7 +61,7 @@ class Model:
     def savings(self, Pa, electricity = True):
         """"""
         if electricity:
-            return Pa * self.costperkWh
+            return Pa * 8760 * self.costperkWh # 8760 hours in a year
         else:
             return Pa * self.costperBTU
     
@@ -146,12 +145,12 @@ class Wind(Model):
     
     def powerRated(self):
         """"""
-        vms = 0.447 * self.getAverageWeatherData("AWND") # average daily wind speed in m/s
+        vms = 0.447 * self.getWeatherData("AWND") # average daily wind speed in m/s
         
         Pls = []
         
-        for i, v in enumerate(vms):
-            func = lambda P_rated: Wind.powerCurve(vms, P_rated, self.v_cutIN(P_rated), self.v_rated(P_rated)) - self.powerActual[i]
+        for P_actual in self.Pa:
+            func = lambda P_rated: Wind.powerCurve(vms, P_rated, self.v_cutIn(P_rated), self.v_rated(P_rated)) - P_actual
             a = 0.001 # kW
             b = 100000 # kW
             
@@ -164,19 +163,19 @@ class Wind(Model):
             
         return np.array(Pls)
     
-    def installCost(self):
+    def installCost_wind(self):
         """https://solartechonline.com/blog/wind-turbine-cost-guide-2025/#:~:text=400W%20systems:%20$700%2D$850,only)%2C%20$80%2C000%2D$150%2C000%20installed"""
         return super().installCost(self.Pi, self.k_capex)
     
-    def OMcost(self):
+    def OMcost_wind(self):
         """https://www.energy.gov/sites/default/files/2022-08/distributed_wind_market_report_2022.pdf?utm_source=chatgpt.com"""
         return super().OMcost(self.Pi, self.k_OM)
     
-    def NPV(self):
+    def NPV_wind(self):
         """"""
         return [super().NPV(self.Pa[i], self.Pi[i], self.k_capex, self.k_OM) for i in range(0, len(self.percentReplacements))]
         
-    def savingsOverTime(self):
+    def savingsOverTime_wind(self):
         return [super().savingsOverTime(self.Pa[i], self.Pi[i], self.k_capex, self.k_OM) for i in range(0, len(self.percentReplacements))]
     
 class Geo(Model):
