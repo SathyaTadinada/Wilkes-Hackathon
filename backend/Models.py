@@ -69,18 +69,38 @@ class Model:
         else:
             return data
         
+    def savings(self, Pa, electricity = True):
+        """"""
+        if electricity:
+            return Pa * self.costperkWh
+        else:
+            return Pa * self.costperBTU
+    
+    def installCost(self, Pi, k_capex):
+        """"""
+        return k_capex * Pi
+    
+    def OMcost(self, Pi, k_OM):
+        """"""
+        return k_OM * Pi
+    
     def NPV(self, Pa, Pi, k_capex, k_OM, r = 0.024, electricity = True):
         """"""
-        capex = k_capex * Pi
+        capex = self.installCost(Pi, k_capex)
         
-        if electricity:
-            savings = Pa * self.costperkWh
-        else:
-            savings = Pa * self.costperBTU
+        sav = self.savings(Pa, electricity = electricity)
             
-        OM = k_OM * Pi # operating and management costs
+        OM = self.OMcost(Pi, k_OM) # operating and management costs
         
-        return -capex + sum((savings - OM)/(1 + r)**t for t in range(0, self.years))
+        return -capex + sum((sav - OM)/(1 + r)**t for t in range(0, self.years))
+    
+    def savingsOverTime(self, Pa, Pi, k_OM, electricity = True):
+        """"""
+        sav = self.savings(Pa, electricity = electricity)
+        OM = self.OMcost(Pi, k_OM) # operating and management costs
+        
+        return sum(sav - OM for t in range(0, self.years))
+        
     
 class Solar(Model):
     """Solar energy solutions"""
@@ -103,22 +123,25 @@ class Wind(Model):
         """https://solartechonline.com/blog/wind-turbine-cost-guide-2025/#:~:text=400W%20systems:%20$700%2D$850,only)%2C%20$80%2C000%2D$150%2C000%20installed"""
         return 7850 * kW
     
-    def cutIn(self, kW):
+    def v_cutIN(self, P_rated):
         """"""
-        # TODO
         return 1
     
-    def efficiency(v, cutIn, ratedSpeed, cutOut = np.inf):
+    def v_rated(self, P_rated):
+        """"""
+        return 1
+    
+    def power(v, P_rated, v_cutIn, v_rated, v_cutOut = np.inf):
         """ wind speed (v) in mph. 
         https://energyeducation.ca/encyclopedia/Wind_power#:~:text=Wind%20speed%20largely%20determines%20the,electrical%20power%20from%20the%20generator.
         """
-        a = 1/(ratedSpeed - cutIn)**3
+        a = P_rated/(v_rated - v_cutIn)**3
         
-        if v < cutIn:
+        if v < v_cutIn:
             return 0
-        elif cutIn <= v < ratedSpeed:
-            return a * (v - cutIn)**3
-        elif ratedSpeed <= v < cutOut:
+        elif v_cutIn <= v < v_rated:
+            return a * (v - v_cutIn)**3
+        elif v_rated <= v < v_cutOut:
             return 1
         else:
             return 0
