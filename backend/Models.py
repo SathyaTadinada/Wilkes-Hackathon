@@ -139,7 +139,7 @@ class Wind(Model):
         elif v_cutIn <= v < v_rated:
             return a * (v - v_cutIn)**3
         elif v_rated <= v < v_cutOut:
-            return 1
+            return P_rated
         else:
             return 0
     
@@ -154,28 +154,29 @@ class Wind(Model):
             a = 0.001 # kW
             b = 100000 # kW
             
+            print("signs different?:", np.sign(func(a)) != np.sign(func(b)))
             if np.sign(func(a)) != np.sign(func(b)):
                 P_r = sp.optimize.brentq(func, a, b)
             else:
                 P_r = np.nan
                 
-        Pls.append(P_r)
+            Pls.append(P_r)
             
         return np.array(Pls)
     
-    def installCost_wind(self):
+    def installCost(self):
         """https://solartechonline.com/blog/wind-turbine-cost-guide-2025/#:~:text=400W%20systems:%20$700%2D$850,only)%2C%20$80%2C000%2D$150%2C000%20installed"""
         return super().installCost(self.Pi, self.k_capex)
     
-    def OMcost_wind(self):
+    def OMcost(self):
         """https://www.energy.gov/sites/default/files/2022-08/distributed_wind_market_report_2022.pdf?utm_source=chatgpt.com"""
         return super().OMcost(self.Pi, self.k_OM)
     
-    def NPV_wind(self):
+    def NPV(self):
         """"""
         return [super().NPV(self.Pa[i], self.Pi[i], self.k_capex, self.k_OM) for i in range(0, len(self.percentReplacements))]
         
-    def savingsOverTime_wind(self):
+    def savingsOverTime(self):
         return [super().savingsOverTime(self.Pa[i], self.Pi[i], self.k_capex, self.k_OM) for i in range(0, len(self.percentReplacements))]
     
 class Geo(Model):
