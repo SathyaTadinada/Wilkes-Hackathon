@@ -1,9 +1,10 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import List, Dict
-from analysis_core import build_analysis_result
-from Models import WindFast, SolarFast, GeoFast
+from typing import Any, Dict, List
+
+from Models import WindFast, SolarFast, GeoFast, EnergyEfficiencyFast
+
 
 @dataclass
 class RetrofitOption:
@@ -11,58 +12,75 @@ class RetrofitOption:
     npv: float
     installation_cost: float
     annual_savings: float
+    annual_energy_savings_kwh: float
     reason: str
 
-def get_objects(normalized_payload):
-    zipcode = normalized_payload['zip']
-    costperkWh = normalized_payload['cost_per_kwh']
-    kWhperyear = normalized_payload['yearly_kwh_usage']
-    costperBTU = normalized_payload['cost_per_btu']
-    BTUperyear = normalized_payload['yearly_btu_usage']
-    sqfeet = normalized_payload['average_sq_ft']
-    years = normalized_payload['years_in_home']
 
+def get_objects(normalized_payload: Dict[str, Any]):
+    zipcode = int(normalized_payload["zip"])
 
+    costperkWh = float(normalized_payload["cost_per_kwh"])
+    kWhperyear = float(normalized_payload["yearly_kwh_usage"])
+
+    costperBTU = float(normalized_payload["cost_per_btu"])
+    BTUperyear = float(normalized_payload["yearly_btu_usage"])
+
+    sqfeet = float(normalized_payload["average_sq_ft"])
+    years = int(float(normalized_payload["years_in_home"]))
+
+    ee = EnergyEfficiencyFast(zipcode, kWhperyear, costperkWh, BTUperyear, costperBTU, years)
     solar = SolarFast(zipcode, kWhperyear, costperkWh, years)
-    # wind = Wind(*inputs)
-    # geo = Geo(*inputs)
-    geo = GeoFast(zipcode, kWhperyear, BTUperyear, costperkWh, costperBTU, years, sqfeet)
     wind = WindFast(zipcode, kWhperyear, costperkWh, years)
+    geo = GeoFast(zipcode, kWhperyear, BTUperyear, costperkWh, costperBTU, years, sqfeet)
 
-    # return [solar, wind, geo]
-    return [solar, wind, geo]
+    return [ee, solar, wind, geo]
+
 
 def mock_options(normalized_payload) -> List[RetrofitOption]:
-    energy_objects = get_objects(normalized_payload)
-    df = []
-    for energy_object in energy_objects:
-        df.append(RetrofitOption(
-            name=energy_object.name,
-            npv=energy_object.npv(),
-            annual_savings=energy_object.annual_savings(),
-            installation_cost=energy_object.installation_cost(),
-            reason="",
+    objs = get_objects(normalized_payload)
+    options: List[RetrofitOption] = []
+
+    for obj in objs:
+        # tiny hackathon "reason" stubs
+        reason = ""
+        if obj.name == "Energy Efficiency":
+            reason = "Usually the fastest, lowest-risk first step: reduce loads before upgrading equipment."
+        elif obj.name == "Solar":
+            reason = "Offsets electricity use with on-site generation; best when roof/solar access is good."
+        elif obj.name == "Wind":
+            reason = "Small residential wind can work in high-wind areas; more site-dependent than solar."
+        elif obj.name == "Geothermal":
+            reason = "Major heating/cooling savings, but higher upfront and more invasive installation."
+
+        annual_kwh_saved = float(obj.annual_energy_savings_kwh_eq()) if hasattr(obj, "annual_energy_savings_kwh_eq") else 0.0
+
+        options.append(
+            RetrofitOption(
+                name=obj.name,
+                npv=float(obj.npv()),
+                annual_savings=float(obj.annual_savings()),
+                installation_cost=float(obj.installation_cost()),
+                annual_energy_savings_kwh=float(annual_kwh_saved),
+                reason=reason,
             )
         )
-    return df
+
+    return options
+
 
 def to_ranked_json(normalized_payload) -> List[Dict]:
     """
-    Returns a list of ranked options in the exact structure the frontend expects.
+    Returns a list of ranked options in the exact structure the frontend expects,
+    plus one extra field used by the new UI pill:
+      - estimated_annual_energy_savings_kwh
     """
     options = mock_options(normalized_payload)
-    years_in_home = normalized_payload["years_in_home"]
-    ranked = []
-
-    def npv_of_annuity(payment: float, r: float, n: float) -> float:
-        # payment received end of each year
-        return payment * (1 - (1 + r) ** (-n)) / r if r > 0 else payment * n
+    years_in_home = float(normalized_payload["years_in_home"])
+    ranked: List[Dict[str, Any]] = []
 
     years_captured = max(years_in_home, 1.0)
-    discount_rate = 0.05  # example
 
     for opt in options:
-        value_during_stay = npv_of_annuity(opt.annual_savings, discount_rate, years_captured) - opt.installation_cost
         payback = (opt.installation_cost / opt.annual_savings) if opt.annual_savings > 0 else 999.0
         value_during_stay = opt.annual_savings * years_captured - opt.installation_cost
 
@@ -72,7 +90,11 @@ def to_ranked_json(normalized_payload) -> List[Dict]:
                 1,
                 min(
                     99,
-                    70 + (opt.annual_savings / 75.0) - (payback * 2.5) + (10 if value_during_stay > 0 else 0),
+                    68
+                    + (opt.annual_savings / 85.0)
+                    + (opt.annual_energy_savings_kwh / 2500.0)
+                    - (payback * 2.0)
+                    + (8 if value_during_stay > 0 else 0),
                 ),
             )
         )
@@ -83,6 +105,7 @@ def to_ranked_json(normalized_payload) -> List[Dict]:
                 "score": score,
                 "upfront_cost": round(opt.installation_cost, 0),
                 "estimated_annual_savings": round(opt.annual_savings, 0),
+                "estimated_annual_energy_savings_kwh": round(opt.annual_energy_savings_kwh, 0),
                 "simple_payback_years": round(payback, 1),
                 "estimated_value_during_stay": round(value_during_stay, 0),
                 "reason": opt.reason,
@@ -91,34 +114,3 @@ def to_ranked_json(normalized_payload) -> List[Dict]:
 
     ranked.sort(key=lambda x: x["score"], reverse=True)
     return ranked
-
-# import pandas as pd
-
-# def build_dataset(energy_objects):
-#     method = []
-#     installation_cost = []
-#     npv = []
-#     for energy_object in energy_objects:
-#         method.append(energy_object.name)
-#         installation_cost.append(energy_object.installCost())
-#         npv.append(energy_object.NPV())
-
-#     df = pd.DataFrame({
-#             "Method": method,
-#             "NPV": npv,
-#             "Installation Cost": installation_cost,
-#         })
-
-#     return df
-
-# def convert_dataset():
-#     #df = build_dataset()
-#     df = pd.DataFrame({
-#         "Method": ["Solar", "Wind", "Geothermal"],
-#         "NPV": [100, 300, 200],
-#         "Installation Cost": [100, 200, 300],
-#         }
-#     )
-#     df_sorted = df.sort_values(by="NPV")
-#     df_json = df_sorted.to_json()
-#     return df_json

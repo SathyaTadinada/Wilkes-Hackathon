@@ -64,6 +64,10 @@ export type BackendRankedOption = {
   score: number;
   upfront_cost: number;
   estimated_annual_savings: number;
+
+  // NEW: what the new UI pill uses (kWh-equivalent per year)
+  estimated_annual_energy_savings_kwh: number;
+
   simple_payback_years: number;
   estimated_value_during_stay: number;
   reason: string;
