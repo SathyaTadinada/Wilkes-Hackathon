@@ -254,7 +254,17 @@ async def analyze(
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
-    ranked_options = to_ranked_json(years_in_home)
+    normalized_payload = {
+        "zip": zip,
+        "cost_per_kwh": electric_data["cost_per_kwh"],
+        "yearly_kwh_usage": electric_data["yearly_kwh_usage"],
+        "cost_per_btu": gas_data["cost_per_btu"],
+        "yearly_btu_usage": gas_data["yearly_btu_usage"],
+        "years_in_home": years_in_home,
+        "average_sq_ft": average_sq_ft,
+    }
+
+    ranked_options = to_ranked_json(normalized_payload)
 
     result = build_analysis_result(
         address=address,
