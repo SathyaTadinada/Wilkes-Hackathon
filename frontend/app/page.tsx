@@ -6,17 +6,17 @@ export default function HomePage() {
       <div className="stack">
         <section className="page-card stack">
           <div>
-            <h1 className="hero-title">Retrofit Analysis Input</h1>
+            <h1 className="hero-title">Retrofit Analyzer</h1>
             <p className="hero-subtitle">
-              This frontend collects home data, parses address + utility bill
-              information, and builds the exact payload your backend models need.
+              Enter your address and utility data (upload bills or manual values).
+              We forward the payload to a Python backend that echoes what it received
+              and returns mock “next best retrofit” recommendations.
             </p>
           </div>
 
           <div className="notice-box">
-            The bill parser is intentionally simple for MVP speed. If a pasted
-            bill format is weird, use the manual override fields for the parsed
-            rate/usage values.
+            Tip: If bill parsing fails, switch that utility to “Manual entry” and submit
+            rate + yearly usage values.
           </div>
         </section>
 
