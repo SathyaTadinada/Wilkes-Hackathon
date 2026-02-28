@@ -12,6 +12,8 @@ import uvicorn
 
 from construct_data import to_ranked_json
 
+from analysis_core import build_analysis_result
+
 import logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("retrofit")
@@ -252,57 +254,28 @@ async def analyze(
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
-    normalized_payload = {
-        "address": address,
-        "city": city,
-        "state": state,
-        "zip": zip,
-        "cost_per_kwh": electric_data["cost_per_kwh"],
-        "yearly_kwh_usage": electric_data["yearly_kwh_usage"],
-        "cost_per_btu": gas_data["cost_per_btu"],
-        "yearly_btu_usage": gas_data["yearly_btu_usage"],
-        "years_in_home": years_in_home,
-        "is_electric_heating": is_electric_heating,
-        "average_sq_ft": average_sq_ft,
-        "heating_fuel": heating_fuel,
-        "cooling_fuel": cooling_fuel,
-    }
-
-    processing_summary = build_processing_summary(normalized_payload)
     ranked_options = to_ranked_json(years_in_home)
 
-    return {
-        "ok": True,
-        "message": "Backend received inputs, parsed utility values, and returned mock ranked retrofit options.",
-        "received_fields": {
-            "address": address,
-            "city": city,
-            "state": state,
-            "zip": zip,
-            "years_in_home": years_in_home,
-            "average_sq_ft": average_sq_ft,
-            "is_electric_heating": is_electric_heating,
-            "heating_fuel": heating_fuel,
-            "cooling_fuel": cooling_fuel,
-            "electricity_mode": electricity_mode,
-            "gas_mode": gas_mode,
-            "has_electricity_pdf": electricity_pdf is not None,
-            "has_gas_pdf": gas_pdf is not None,
-        },
-        "electric_parse": {
-            "source": electric_data["source"],
-            "notes": electric_data["notes"],
-            "pdf_text_preview": (electricity_text[:500] if electricity_text else None),
-        },
-        "gas_parse": {
-            "source": gas_data["source"],
-            "notes": gas_data["notes"],
-            "pdf_text_preview": (gas_text[:500] if gas_text else None),
-        },
-        "normalized_payload": normalized_payload,
-        "processing_summary": processing_summary,
-        "ranked_options": ranked_options,
-    }
+    result = build_analysis_result(
+        address=address,
+        city=city,
+        state=state,
+        zip=zip,
+        years_in_home=years_in_home,
+        average_sq_ft=average_sq_ft,
+        is_electric_heating=is_electric_heating,
+        heating_fuel=heating_fuel,
+        cooling_fuel=cooling_fuel,
+        electricity_mode=electricity_mode,
+        gas_mode=gas_mode,
+        electric_data=electric_data,
+        gas_data=gas_data,
+        electricity_text=electricity_text,
+        gas_text=gas_text,
+        ranked_options=ranked_options,
+        build_processing_summary_fn=build_processing_summary,
+    )
+    return result
 
 if __name__ == "__main__":
     uvicorn.run(
