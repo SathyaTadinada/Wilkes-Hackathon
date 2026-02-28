@@ -302,17 +302,6 @@ export default function HomeAnalysisForm() {
             type="number"
             min="0"
             step="0.01"
-            value={form.electricUsageOverride}
-            onChange={(event) =>
-              update("electricUsageOverride", event.target.value)
-            }
-            placeholder="Optional"
-          />
-          <input
-            className="input"
-            type="number"
-            min="0"
-            step="0.01"
             required={!electricityPdf}
             value={form.electricUsageOverride}
             onChange={(event) =>
