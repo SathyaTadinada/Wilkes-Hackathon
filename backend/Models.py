@@ -24,7 +24,7 @@ class Model:
         self.BTUperyear = BTUperyear
         self.sqfeet = sqfeet
         self.years = years
-        self.percentReplacements = np.array([0.1, 0.3, 1])
+        self.percentReplacements = np.array([0.01, 0.1, 0.3, 1])
         self.station = self.getStation()
         self.totalAverageWeatherData = weather_df.drop(columns = ["STATION", "NAME"]).mean()
         self.averageWeatherData = self.getAverageWeatherData()
@@ -125,23 +125,25 @@ class Wind(Model):
         super().__init__(zipcode, costperkWh, kWhperyear, costperBTU, BTUperyear, sqfeet, years)
         self.k_capex = 7850
         self.k_OM = 46
+        self.vms = 0.447 * self.getWeatherData("AWND") # units of m/s
         self.Pa = self.kWhperyear/8760 * self.percentReplacements
         self.Pi = self.powerRated()
     
     def Area(self, P_rated):
         """returns area in meters for a given power rating
         https://docs.google.com/spreadsheets/d/1vxPFSOo5255XTnbqL5LU9BPplS1_HoSFddLY0MMfdlY/edit?usp=sharing"""
-        return 12.1 + 4.27 * np.log(P_rated)
+        return 10.4 * P_rated**0.469
     
     def v_cutIn(self, P_rated):
         """https://docs.google.com/spreadsheets/d/1D1LJACNSzSjRHw3l2GSSJ7E_lHYuaRjZIAY-oMghpIU/edit?usp=sharing"""
-        return 2.8 # m/s
+        return 2.5 # m/s
     
     def v_rated(self, P_rated):
         """"""
         eta = 0.3 # efficiency
         rho = 1.225 # kg/m^3 https://en.wikipedia.org/wiki/Density_of_air sea level which is technically wrong for Utah
-        return (2 * 1000 * P_rated/(eta * rho * self.Area(P_rated)))**(1/3) # m/s
+        v_r = (2 * 1000 * P_rated/(eta * rho * self.Area(P_rated)))**(1/3) - self.v_cutIn(P_rated)
+        return v_r # m/s
     
     def powerCurve(v, P_rated, v_cutIn, v_rated):
         """ wind speed (v) in mph. 
@@ -160,24 +162,32 @@ class Wind(Model):
         else:
             return 0
     
+    def randomWind(self):
+        """"""
+        N = 10000
+        return N, sp.stats.rayleigh.rvs(scale = np.sqrt(2/np.pi) * self.vms, size = N)
+    
     def powerRated(self):
         """"""
-        vms = 0.447 * self.getWeatherData("AWND") # average daily wind speed in m/s
-        
         Pls = []
         
         for P_actual in self.Pa:
-            func = lambda P_rated: Wind.powerCurve(vms, P_rated, self.v_cutIn(P_rated), self.v_rated(P_rated)) - P_actual
-            a = 0.001 # kW
-            b = 100000 # kW
+            N, v_rvs = self.randomWind()
+            P_r_meanls = []
             
-            print("signs different?:", np.sign(func(a)) != np.sign(func(b)))
-            if np.sign(func(a)) != np.sign(func(b)):
-                P_r = sp.optimize.brentq(func, a, b)
-            else:
-                P_r = np.nan
+            for v in v_rvs:
+                func = lambda P_rated: Wind.powerCurve(v, P_rated, self.v_cutIn(P_rated), self.v_rated(P_rated)) - P_actual
+                a = 0.001 # kW
+                b = 1000 # kW
                 
-            Pls.append(P_r)
+                if np.sign(func(a)) != np.sign(func(b)):
+                    P_r = sp.optimize.brentq(func, a, b)
+                else:
+                    P_r = np.nan
+                    
+                P_r_meanls.append(P_r)
+                
+            Pls.append(np.nanmean(P_r_meanls))
             
         return np.array(Pls)
     
