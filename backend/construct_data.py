@@ -32,12 +32,12 @@ def get_objects(normalized_payload):
         years,
     ]
 
-    solar = Solar(*inputs)
-    wind = Wind(*inputs)
-    geo = Geo(*inputs)
+    # solar = Solar(*inputs)
+    # wind = Wind(*inputs)
+    # geo = Geo(*inputs)
     dummy = Dummy(*inputs)
 
-    #return [solar, wind, geo]
+    # return [solar, wind, geo]
     return [dummy]
 
 def mock_options(normalized_payload) -> List[RetrofitOption]:
@@ -46,9 +46,9 @@ def mock_options(normalized_payload) -> List[RetrofitOption]:
     for energy_object in energy_objects:
         df.append(RetrofitOption(
             name=energy_object.name,
-            npv=energy_object.NPV(),
-            annual_savings=energy_object.savingsOverTime(),
-            installation_cost=energy_object.installCost(),
+            npv=energy_object.NPVsub(),
+            annual_savings=energy_object.savingsOverTimeSub(),
+            installation_cost=energy_object.installCostSub(),
             reason="fuckass",
             )
         )
