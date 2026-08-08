@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "Retrofit Analyzer",
+  title: "RetroActive",
   description: "Hackathon MVP: upload bills or enter usage manually, get retrofit recommendations.",
 };
 

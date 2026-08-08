@@ -6,7 +6,7 @@ export default function HomePage() {
       <div className="stack">
         <section className="page-card stack">
           <div>
-            <h1 className="hero-title">Retrofit Analyzer</h1>
+            <h1 className="hero-title">RetroActive</h1>
             <p className="hero-subtitle">
               Enter your address and utility data (upload bills or manual values).
               We forward the payload to a Python backend that returns “next best retrofit” recommendations.
